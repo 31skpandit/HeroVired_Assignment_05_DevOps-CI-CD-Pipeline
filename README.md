@@ -113,7 +113,7 @@ keys) is used for `aws ecr get-login-password`, so no AWS credentials live on th
     acceptable for this teaching deployment; a production setup would front this with a
     load balancer/WAF instead of exposing the instance directly)
 
-Full step-by-step provisioning commands are in [`SETUP_GUIDE.md`](../SETUP_GUIDE.md).
+Full step-by-step provisioning commands are in [`docs/SETUP_GUIDE.md`](docs/SETUP_GUIDE.md).
 
 ### Reproducing a deployment manually (if the pipeline were unavailable)
 
@@ -137,7 +137,7 @@ curl http://localhost:5000/health
 ## Project Structure
 
 ```
-flask_Practice/
+flask_Practice_repo/
 ├── app.py
 ├── requirements.txt
 ├── test_app.py
@@ -150,8 +150,29 @@ flask_Practice/
 ├── .dockerignore
 ├── .env.example
 ├── .github/workflows/ci-cd.yml
+├── docs/                          ← assignment docs, setup guide, learning journal, safe screenshots
+│   ├── HeroVired_Assignment_Docs/
+│   ├── Learning_Journal/
+│   ├── Screenshots_Safe/
+│   └── SETUP_GUIDE.md
 └── README.md
 ```
+
+> **Note:** `PRIVATE_do_not_share/` may exist locally alongside this structure — it is
+> git-ignored on purpose (see `.gitignore`) and never pushed. It holds personal working
+> material (SSH keys, unredacted screenshots, raw CI logs) that isn't part of the submitted
+> project. See [`docs/Learning_Journal/`](docs/Learning_Journal/) for the sanitized,
+> shareable version of the same history.
+
+## Documentation & Learning Journal
+
+For the full story behind this project — every step performed and why, the complete tech
+stack with a mind map, and a candid table of every real problem hit during development and
+how it was solved — see [`docs/Learning_Journal/`](docs/Learning_Journal/):
+
+- [`01_PROJECT_JOURNAL.md`](docs/Learning_Journal/01_PROJECT_JOURNAL.md) — the narrative walkthrough
+- [`02_TECH_STACK_AND_MINDMAP.md`](docs/Learning_Journal/02_TECH_STACK_AND_MINDMAP.md) — quick-revision reference
+- [`03_LESSONS_LEARNED.md`](docs/Learning_Journal/03_LESSONS_LEARNED.md) — challenges faced and fixes
 
 ## Notes
 

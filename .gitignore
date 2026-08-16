@@ -29,3 +29,10 @@ ENV/
 # AWS / SSH secrets — never commit these
 *.pem
 *.ppk
+
+# Personal reference material with real credentials/account IDs/IPs —
+# screenshots taken while working through this assignment, AWS access keys,
+# and other secrets. Never push this folder, even though it lives inside
+# the repo for convenience. See docs/Learning_Journal for the sanitized,
+# public-safe version of this same material.
+PRIVATE_do_not_share/

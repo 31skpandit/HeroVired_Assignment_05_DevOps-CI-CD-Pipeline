@@ -12,3 +12,7 @@ __pycache__/
 README.md
 SETUP_GUIDE.md
 *.pem
+docs/
+PRIVATE_do_not_share/
+LICENSE
+start_flask.sh
