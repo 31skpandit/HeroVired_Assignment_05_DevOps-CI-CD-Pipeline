@@ -28,10 +28,7 @@ def test_home_page(client):
     """Test if home page loads correctly"""
     response = client.get('/')
     assert response.status_code == 200
-    # INTENTIONAL-FAILURE-DEMO: deliberately wrong assertion to prove the
-    # pipeline stops at the Test stage and sends a correctly-labeled failure
-    # email. Revert this line before merging.
-    assert b"This Text Does Not Exist On The Page" in response.data
+    assert b"Test Student" in response.data
 
 
 def test_add_student(client):
