@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for
 from flask_pymongo import PyMongo
 from bson.objectid import ObjectId
 from dotenv import load_dotenv
+from pymongo.errors import PyMongoError
 import certifi
 import os
 
@@ -59,7 +60,14 @@ def delete_student(student_id):
     mongo.db.students.delete_one({"_id": ObjectId(student_id)})
     return redirect(url_for('index'))
 
+# Health check -> used by the CI/CD pipeline as the deploy-verification gate
+@app.route('/health')
+def health():
+    try:
+        mongo.cx.admin.command('ping')
+        return {"status": "ok", "mongo": "connected"}, 200
+    except PyMongoError as e:
+        return {"status": "error", "mongo": str(e)}, 503
+
 if __name__ == '__main__':
     app.run(host="0.0.0.0", debug=True, port=5000)
-
-

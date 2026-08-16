@@ -1,0 +1,14 @@
+.git
+.github
+.gitignore
+.env
+.env.example
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+README.md
+SETUP_GUIDE.md
+*.pem

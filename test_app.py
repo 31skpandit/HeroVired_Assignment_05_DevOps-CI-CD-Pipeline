@@ -61,3 +61,12 @@ def test_delete_student(client):
     response = client.get(f'/delete/{student_id}', follow_redirects=True)
     assert response.status_code == 200
     assert b"Temp User" not in response.data
+
+
+def test_health_check_success(client):
+    """Test /health returns ok when MongoDB is reachable"""
+    response = client.get('/health')
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["status"] == "ok"
+    assert body["mongo"] == "connected"

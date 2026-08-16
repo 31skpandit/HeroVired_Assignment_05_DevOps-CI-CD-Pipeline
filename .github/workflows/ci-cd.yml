@@ -1,0 +1,189 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+  CONTAINER_NAME: student-app
+
+jobs:
+  build-test-deploy:
+    name: Test, Build, Push, Deploy
+    runs-on: ubuntu-latest
+
+    services:
+      mongo:
+        image: mongo:6
+        ports:
+          - 27017:27017
+
+    steps:
+      # 1. Checkout ---------------------------------------------------------
+      - name: Checkout source
+        id: checkout
+        uses: actions/checkout@v4
+
+      - name: Set build variables
+        id: vars
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "sha_full=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "branch=${GITHUB_REF#refs/heads/}" >> "$GITHUB_ENV"
+          echo "run_url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_ENV"
+
+      # 2. Install ------------------------------------------------------------
+      - name: Set up Python
+        id: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        id: install
+        run: pip install -r requirements.txt
+
+      # 3. Test — pipeline stops here if any test fails ----------------------
+      - name: Run tests
+        id: test
+        run: pytest -v
+        env:
+          MONGO_URI: mongodb://localhost:27017/test_student_db
+          SECRET_KEY: test-secret-key
+
+      # 4. Build — tag with commit SHA, not "latest" -------------------------
+      - name: Configure AWS credentials
+        id: aws_creds
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr_login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image
+        id: build
+        run: |
+          IMAGE_URI="${{ steps.ecr_login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.sha_short }}"
+          docker build -t "$IMAGE_URI" .
+          echo "image_uri=$IMAGE_URI" >> "$GITHUB_ENV"
+
+      # 5. Push to ECR ---------------------------------------------------------
+      - name: Push image to ECR
+        id: push
+        run: docker push "${{ env.image_uri }}"
+
+      # 6. Deploy to EC2 --------------------------------------------------------
+      - name: Deploy to EC2
+        id: deploy
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          IMAGE_URI: ${{ env.image_uri }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: IMAGE_URI,MONGO_URI,SECRET_KEY,AWS_REGION,CONTAINER_NAME
+          script: |
+            set -e
+            REGISTRY=$(echo "$IMAGE_URI" | cut -d'/' -f1)
+            aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+            docker pull "$IMAGE_URI"
+            docker stop "$CONTAINER_NAME" 2>/dev/null || true
+            docker rm "$CONTAINER_NAME" 2>/dev/null || true
+            docker run -d \
+              --name "$CONTAINER_NAME" \
+              --restart unless-stopped \
+              -p 5000:5000 \
+              -e MONGO_URI="$MONGO_URI" \
+              -e SECRET_KEY="$SECRET_KEY" \
+              "$IMAGE_URI"
+            docker image prune -f
+
+      # 7. Verify — real deploy-verification gate ------------------------------
+      - name: Verify deployment via /health
+        id: verify
+        run: |
+          for i in $(seq 1 10); do
+            if curl -fs "http://${{ secrets.EC2_HOST }}:5000/health"; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Health check attempt $i failed, retrying in 6s..."
+            sleep 6
+          done
+          echo "Health check failed after all retries"
+          exit 1
+
+      # 8. Notify — determine failing stage on failure -------------------------
+      - name: Determine failed stage
+        id: determine_failure
+        if: failure()
+        run: |
+          if   [ "${{ steps.checkout.outcome }}" != "success" ]; then STAGE="Checkout"
+          elif [ "${{ steps.install.outcome }}" != "success" ]; then STAGE="Install dependencies"
+          elif [ "${{ steps.test.outcome }}" != "success" ]; then STAGE="Test (pytest)"
+          elif [ "${{ steps.aws_creds.outcome }}" != "success" ]; then STAGE="AWS authentication"
+          elif [ "${{ steps.ecr_login.outcome }}" != "success" ]; then STAGE="ECR login"
+          elif [ "${{ steps.build.outcome }}" != "success" ]; then STAGE="Build (Docker image)"
+          elif [ "${{ steps.push.outcome }}" != "success" ]; then STAGE="Push to ECR"
+          elif [ "${{ steps.deploy.outcome }}" != "success" ]; then STAGE="Deploy to EC2"
+          elif [ "${{ steps.verify.outcome }}" != "success" ]; then STAGE="Verify (/health check)"
+          else STAGE="Unknown"
+          fi
+          echo "failed_stage=$STAGE" >> "$GITHUB_ENV"
+
+      - name: Send success email
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          from: CI/CD Pipeline <${{ secrets.MAIL_USERNAME }}>
+          to: ${{ secrets.MAIL_TO }}
+          subject: "✅ SUCCESS: flask_Practice deployed (${{ env.sha_short }})"
+          body: |
+            Deployment succeeded.
+
+            Branch:        ${{ env.branch }}
+            Commit SHA:    ${{ env.sha_full }}
+            Image tag:     ${{ env.image_uri }}
+            EC2 target:    ${{ secrets.EC2_HOST }}:5000
+            Health check:  http://${{ secrets.EC2_HOST }}:5000/health  (verified OK)
+            Pipeline run:  ${{ env.run_url }}
+
+            The Student Registration System is live with the above image.
+
+      - name: Send failure email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          from: CI/CD Pipeline <${{ secrets.MAIL_USERNAME }}>
+          to: ${{ secrets.MAIL_TO }}
+          subject: "❌ FAILURE: flask_Practice pipeline failed at ${{ env.failed_stage }} (${{ env.sha_short }})"
+          body: |
+            Deployment FAILED.
+
+            Failed stage:  ${{ env.failed_stage }}
+            Branch:        ${{ env.branch }}
+            Commit SHA:    ${{ env.sha_full }}
+            Pipeline logs: ${{ env.run_url }}
+
+            Investigate the failed stage in the pipeline logs linked above.
+            If the failure occurred during or after the Deploy stage, check the
+            container status on EC2 directly (docker ps -a, docker logs student-app).
