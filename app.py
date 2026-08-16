@@ -13,9 +13,15 @@ app = Flask(__name__)
 app.config["MONGO_URI"] = os.getenv("MONGO_URI")
 app.secret_key = os.getenv("SECRET_KEY")
 
-# Use certifi CA bundle explicitly for cross-platform TLS reliability
-# (notably fixes common macOS certificate verification failures).
-mongo = PyMongo(app, tlsCAFile=certifi.where())
+# Use certifi CA bundle explicitly for cross-platform TLS reliability with
+# MongoDB Atlas (notably fixes common macOS certificate verification failures).
+# Only applied for mongodb+srv:// (Atlas) URIs -- a plain mongodb:// URI (e.g.
+# a local/test MongoDB with no TLS) must not be forced into a TLS handshake,
+# or the driver fails with "SSL handshake failed" against a non-TLS server.
+_mongo_kwargs = {}
+if (app.config["MONGO_URI"] or "").startswith("mongodb+srv://"):
+    _mongo_kwargs["tlsCAFile"] = certifi.where()
+mongo = PyMongo(app, **_mongo_kwargs)
 
 # Home page -> list students
 @app.route('/')
